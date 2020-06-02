@@ -113,7 +113,7 @@ mod test {
 
     #[tokio::test]
     async fn test_cache_unix_socket() {
-        let manager = MemcacheConnectionManager::new("unix:///tmp/memcached.sock").unwrap();
+        let manager = MemcacheConnectionManager::new("unix:/tmp/memcached.sock").unwrap();
         let pool = MemcachePool::new(bb8::Pool::builder().build(manager).await.unwrap());
 
         let pool = pool.clone();
