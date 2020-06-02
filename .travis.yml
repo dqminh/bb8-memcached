@@ -1,0 +1,17 @@
+language: rust
+
+rust:
+  - stable
+  - nightly
+
+jobs:
+  allow_failures:
+    - rust: nightly
+
+services: memcache
+
+env:
+  - RUST_BACKTRACE=1
+
+before_script:
+  - memcached -s /tmp/memcached.sock -d
