@@ -66,6 +66,14 @@ impl Connection {
         }
     }
 
+   /// Delete a key and don't wait for response.
+   pub async fn delete<'a, K: Display>(&'a mut self, key: &'a K) -> Result<Vec<u8>, io::Error> {
+        match self {
+            Connection::Unix(ref mut c) => c.delete(key).await,
+            Connection::Tcp(ref mut c) => c.delete(key).await,
+        }
+    }
+
     /// Set key to given value and don't wait for response.
     pub async fn set<'a, K: Display>(
         &'a mut self,

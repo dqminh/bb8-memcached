@@ -11,9 +11,9 @@ keywords = ["memcache", "memcached", "cache", "database", "async"]
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-bb8 = "0.4"
+bb8 = "0.5"
 async-trait = "0.1"
-memcache-async = "^0.4.3"
+serde_tar = { git = "https://github.com/resosafe/memcache-async" }
 futures = "0.3"
 url = "2"
 tokio = { version = "0.2", features = ["rt-core",  "net", "sync", "time"] }
