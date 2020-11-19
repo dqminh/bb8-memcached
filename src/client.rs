@@ -70,6 +70,19 @@ impl Connection {
         }
     }
 
+      /// Add key to given value, wait for response.
+      pub async fn add<'a, K: Display>(
+        &'a mut self,
+        key: &'a K,
+        val: &'a [u8],
+        expiration: u32,
+    ) -> Result<(), io::Error> {
+        match self {
+            Connection::Unix(ref mut c) => c.add(key, val, expiration).await,
+            Connection::Tcp(ref mut c) => c.add(key, val, expiration).await,
+        }
+    }
+
     /// Set key to given value and don't wait for response.
     pub async fn set<'a, K: Display>(
         &'a mut self,
