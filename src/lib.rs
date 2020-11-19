@@ -46,9 +46,7 @@ pub struct MemcacheConnectionManager {
 
 impl MemcacheConnectionManager {
     pub fn new<U: Connectable>(u: U) -> Result<MemcacheConnectionManager, io::Error> {
-        Ok(MemcacheConnectionManager {
-            uri: u.get_uri(),
-        })
+        Ok(MemcacheConnectionManager { uri: u.get_uri() })
     }
 }
 
@@ -61,7 +59,10 @@ impl bb8::ManageConnection for MemcacheConnectionManager {
         Connection::connect(&self.uri).await
     }
 
-    async fn is_valid(&self, conn: &mut bb8::PooledConnection<'_, Self>) -> Result<(), Self::Error> {
+    async fn is_valid(
+        &self,
+        conn: &mut bb8::PooledConnection<'_, Self>,
+    ) -> Result<(), Self::Error> {
         conn.version().await.map(|_| ())
     }
 
@@ -86,10 +87,37 @@ mod test {
 
         assert!(conn.flush().await.is_ok());
 
-        let ( key, val ) = ("hello", "world");
-        assert_eq!(conn.get(&key).await.unwrap_err().kind(), ErrorKind::NotFound);
+        let (key, val) = ("hello", "world");
+        assert_eq!(
+            conn.get(&key).await.unwrap_err().kind(),
+            ErrorKind::NotFound
+        );
         assert!(conn.set(&key, val.as_bytes(), 0).await.is_ok());
         assert_eq!(conn.get(&key).await.unwrap(), val.as_bytes());
+    }
+
+    #[tokio::test]
+    async fn test_cache_add_delete() {
+        let manager = MemcacheConnectionManager::new("tcp://localhost:11211").unwrap();
+        let pool = bb8::Pool::builder().build(manager).await.unwrap();
+
+        let pool = pool.clone();
+        let mut conn = pool.get().await.unwrap();
+
+        assert!(conn.flush().await.is_ok());
+
+        let (key, val) = ("hello_add_delete", "world");
+        assert!(conn.add(&key, val.as_bytes(), 0).await.is_ok());
+        assert_eq!(conn.get(&key).await.unwrap(), val.as_bytes());
+
+        // add the same key will fail
+        assert!(conn.add(&key, val.as_bytes(), 0).await.is_err());
+
+        assert!(conn.delete(&key).await.is_ok());
+        assert_eq!(
+            conn.get(&key).await.unwrap_err().kind(),
+            ErrorKind::NotFound
+        );
     }
 
     #[tokio::test]
