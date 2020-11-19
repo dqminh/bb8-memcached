@@ -1,4 +1,6 @@
 use memcache_async::ascii;
+use std::collections::HashMap;
+use std::fmt::Display;
 use std::io;
 use std::ops::{Deref, DerefMut};
 use std::pin::Pin;
@@ -6,8 +8,6 @@ use std::task::{Context, Poll};
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::net::{TcpStream, UnixStream};
 use url::Url;
-use std::fmt::Display;
-use std::collections::HashMap;
 
 pub trait Connectable {
     fn get_uri(self) -> Url;
@@ -34,10 +34,7 @@ impl Connection {
     pub async fn connect(uri: &Url) -> Result<Connection, io::Error> {
         let connection = if uri.has_authority() {
             let addr = uri.socket_addrs(|| None)?;
-            let sock = TcpStream::connect(
-                addr.first().unwrap()
-                )
-                .await?;
+            let sock = TcpStream::connect(addr.first().unwrap()).await?;
             Connection::Tcp(ascii::Protocol::new(StreamCompat::new(sock)))
         } else {
             let sock = UnixStream::connect(uri.path()).await?;
@@ -57,17 +54,16 @@ impl Connection {
     /// Returns values for multiple keys in a single call as a HashMap from keys to found values. If a key is not present in memcached it will be absent from returned map.
     pub async fn get_multi<'a, K: AsRef<[u8]>>(
         &'a mut self,
-        keys: &'a Vec<K>
-        ) -> Result<HashMap<String, Vec<u8>>, io::Error>
-    {
+        keys: &'a Vec<K>,
+    ) -> Result<HashMap<String, Vec<u8>>, io::Error> {
         match self {
             Connection::Unix(ref mut c) => c.get_multi(keys).await,
             Connection::Tcp(ref mut c) => c.get_multi(keys).await,
         }
     }
 
-   /// Delete a key and don't wait for response.
-   pub async fn delete<'a, K: Display>(&'a mut self, key: &'a K) -> Result<Vec<u8>, io::Error> {
+    /// Delete a key and don't wait for response.
+    pub async fn delete<'a, K: Display>(&'a mut self, key: &'a K) -> Result<(), io::Error> {
         match self {
             Connection::Unix(ref mut c) => c.delete(key).await,
             Connection::Tcp(ref mut c) => c.delete(key).await,

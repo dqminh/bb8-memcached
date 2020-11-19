@@ -35,23 +35,23 @@ impl MemcachePool {
         self.pool().get().await
     }
 
-    /// Run the function with a connection provided by the pool.
-    pub async fn run<'a, T, E, U, F>(&self, f: F) -> Result<T, bb8::RunError<E>>
-    where
-        F: FnOnce(Connection) -> U + Send + 'a,
-        U: Future<Output = Result<(Connection, T), E>> + Send + 'a,
-        E: From<<MemcacheConnectionManager as bb8::ManageConnection>::Error> + Send + 'a,
-        T: Send + 'a,
-    {
-        let f = move |conn: Option<Connection>| {
-            let conn = conn.unwrap();
-            f(conn).map(|res| match res {
-                Ok((conn, item)) => Ok((item, Some(conn))),
-                Err(err) => Err((err, None)),
-            })
-        };
-        self.pool.run(f).await
-    }
+    // Run the function with a connection provided by the pool.
+    // pub async fn run<'a, T, E, U, F>(&self, f: F) -> Result<T, bb8::RunError<E>>
+    // where
+    //     F: FnOnce(Connection) -> U + Send + 'a,
+    //     U: Future<Output = Result<(Connection, T), E>> + Send + 'a,
+    //     E: From<<MemcacheConnectionManager as bb8::ManageConnection>::Error> + Send + 'a,
+    //     T: Send + 'a,
+    // {
+    //     let f = move |conn: Option<Connection>| {
+    //         let conn = conn.unwrap();
+    //         f(conn).map(|res| match res {
+    //             Ok((conn, item)) => Ok((item, Some(conn))),
+    //             Err(err) => Err((err, None)),
+    //         })
+    //     };
+    //     self.pool.run(f).await
+    // }
 }
 
 /// A `bb8::ManageConnection` for `memcache_async::ascii::Protocol`.
@@ -78,9 +78,11 @@ impl bb8::ManageConnection for MemcacheConnectionManager {
         Ok(Some(conn))
     }
 
-    async fn is_valid(&self, mut conn: Self::Connection) -> Result<Self::Connection, Self::Error> {
+  //  async fn is_valid(&self, conn: &mut PooledConnection<'_, Self>) -> Result<(), Self::Error>;
+
+    async fn is_valid(&self, conn:  &mut bb8::PooledConnection<'_, Self>) -> Result<(), Self::Error> {
         // The connection should only be None after a failure.
-        conn.as_mut().unwrap().version().await.map(|_| conn)
+        conn.as_mut().unwrap().version().await.map(|_| ())
     }
 
     fn has_broken(&self, conn: &mut Self::Connection) -> bool {
