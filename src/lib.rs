@@ -114,6 +114,20 @@ mod test {
     }
 
     #[tokio::test]
+    async fn test_cache_add() {
+        let manager = MemcacheConnectionManager::new("tcp://localhost:11211").unwrap();
+        let pool = MemcachePool::new(bb8::Pool::builder().build(manager).await.unwrap());
+
+        let pool = pool.clone();
+        let mut conn = pool.get().await.unwrap();
+        let conn = conn.as_mut().unwrap();
+
+        assert!(conn.flush().await.is_ok());
+        let ( key, val ) = ("hello", "world");
+        assert!(conn.add(&key, val.as_bytes(), 0).await.is_ok());
+    }
+
+    #[tokio::test]
     async fn test_cache_unix_socket() {
         let manager = MemcacheConnectionManager::new("unix:/tmp/memcached.sock").unwrap();
         let pool = MemcachePool::new(bb8::Pool::builder().build(manager).await.unwrap());
