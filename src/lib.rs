@@ -1,3 +1,33 @@
+//! Memcached support for the `bb8` connection pool.
+//!
+//! # Example
+//! ```
+//! use futures_util::future::join_all;
+//! use bb8_memcached::{bb8, MemcacheConnectionManager};
+//!
+//! #[tokio::main]
+//! async fn main() {
+//!     let manager = RedisConnectionManager::new("redis://localhost").unwrap();
+//!     let pool = bb8::Pool::builder().build(manager).await.unwrap();
+//!
+//!     let mut handles = vec![];
+//!
+//!     for _i in 0..10 {
+//!         let pool = pool.clone();
+//!
+//!         handles.push(tokio::spawn(async move {
+//!             let mut conn = pool.get().await.unwrap();
+//!
+//!             let version = conn.version().await.unwrap();
+//!
+//!             assert_eq!("VERSION 1.6.9", reply);
+//!         }));
+//!     }
+//!
+//!     join_all(handles).await;
+//! }
+//! ```
+
 #![allow(clippy::needless_doctest_main)]
 
 pub use bb8;
@@ -5,54 +35,10 @@ pub use memcache_async;
 
 mod client;
 
-use futures::future::{Future, FutureExt};
 use async_trait::async_trait;
 use client::{Connectable, Connection};
 use std::io;
 use url::Url;
-
-/// `MemcachePool` is a convenience wrapper around `bb8::Pool` that hides the fact that
-/// `RedisConnectionManager` uses an `Option<Connection>` to smooth over the API incompatibility.
-#[derive(Debug, Clone)]
-pub struct MemcachePool {
-    pool: bb8::Pool<MemcacheConnectionManager>,
-}
-
-impl MemcachePool {
-    pub fn new(pool: bb8::Pool<MemcacheConnectionManager>) -> MemcachePool {
-        MemcachePool { pool }
-    }
-
-    /// Access the `bb8::Pool` directly.
-    pub fn pool(&self) -> &bb8::Pool<MemcacheConnectionManager> {
-        &self.pool
-    }
-
-    /// Retrieve the pooled connection
-    pub async fn get(
-        &self,
-    ) -> Result<bb8::PooledConnection<'_, MemcacheConnectionManager>, bb8::RunError<io::Error>> {
-        self.pool().get().await
-    }
-
-    /// Run the function with a connection provided by the pool.
-    pub async fn run<'a, T, E, U, F>(&self, f: F) -> Result<T, bb8::RunError<E>>
-    where
-        F: FnOnce(Connection) -> U + Send + 'a,
-        U: Future<Output = Result<(Connection, T), E>> + Send + 'a,
-        E: From<<MemcacheConnectionManager as bb8::ManageConnection>::Error> + Send + 'a,
-        T: Send + 'a,
-    {
-        let f = move |conn: Option<Connection>| {
-            let conn = conn.unwrap();
-            f(conn).map(|res| match res {
-                Ok((conn, item)) => Ok((item, Some(conn))),
-                Err(err) => Err((err, None)),
-            })
-        };
-        self.pool.run(f).await
-    }
-}
 
 /// A `bb8::ManageConnection` for `memcache_async::ascii::Protocol`.
 #[derive(Clone, Debug)]
@@ -70,21 +56,19 @@ impl MemcacheConnectionManager {
 
 #[async_trait]
 impl bb8::ManageConnection for MemcacheConnectionManager {
-    type Connection = Option<Connection>;
+    type Connection = Connection;
     type Error = io::Error;
 
     async fn connect(&self) -> Result<Self::Connection, Self::Error> {
-        let conn = Connection::connect(&self.uri).await?;
-        Ok(Some(conn))
+        Connection::connect(&self.uri).await
     }
 
-    async fn is_valid(&self, mut conn: Self::Connection) -> Result<Self::Connection, Self::Error> {
-        // The connection should only be None after a failure.
-        conn.as_mut().unwrap().version().await.map(|_| conn)
+    async fn is_valid(&self, conn: &mut bb8::PooledConnection<'_, Self>) -> Result<(), Self::Error> {
+        conn.version().await.map(|_| ())
     }
 
-    fn has_broken(&self, conn: &mut Self::Connection) -> bool {
-        conn.is_none()
+    fn has_broken(&self, _: &mut Self::Connection) -> bool {
+        false
     }
 }
 
@@ -97,11 +81,10 @@ mod test {
     #[tokio::test]
     async fn test_cache_get() {
         let manager = MemcacheConnectionManager::new("tcp://localhost:11211").unwrap();
-        let pool = MemcachePool::new(bb8::Pool::builder().build(manager).await.unwrap());
+        let pool = bb8::Pool::builder().build(manager).await.unwrap();
 
         let pool = pool.clone();
         let mut conn = pool.get().await.unwrap();
-        let conn = conn.as_mut().unwrap();
 
         assert!(conn.flush().await.is_ok());
 
@@ -114,11 +97,10 @@ mod test {
     #[tokio::test]
     async fn test_cache_unix_socket() {
         let manager = MemcacheConnectionManager::new("unix:/tmp/memcached.sock").unwrap();
-        let pool = MemcachePool::new(bb8::Pool::builder().build(manager).await.unwrap());
+        let pool = bb8::Pool::builder().build(manager).await.unwrap();
 
         let pool = pool.clone();
         let mut conn = pool.get().await.unwrap();
-        let conn = conn.as_mut().unwrap();
 
         assert!(conn.flush().await.is_ok());
     }
