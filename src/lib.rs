@@ -2,12 +2,12 @@
 //!
 //! # Example
 //! ```
-//! use futures_util::future::join_all;
+//! use futures::future::join_all;
 //! use bb8_memcached::{bb8, MemcacheConnectionManager};
 //!
 //! #[tokio::main]
 //! async fn main() {
-//!     let manager = RedisConnectionManager::new("redis://localhost").unwrap();
+//!     let manager = MemcacheConnectionManager::new("tcp://localhost:11211").unwrap();
 //!     let pool = bb8::Pool::builder().build(manager).await.unwrap();
 //!
 //!     let mut handles = vec![];
@@ -19,8 +19,6 @@
 //!             let mut conn = pool.get().await.unwrap();
 //!
 //!             let version = conn.version().await.unwrap();
-//!
-//!             assert_eq!("VERSION 1.6.9", reply);
 //!         }));
 //!     }
 //!
