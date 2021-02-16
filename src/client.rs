@@ -1,13 +1,13 @@
 use memcache_async::ascii;
+use std::collections::HashMap;
+use std::fmt::Display;
 use std::io;
 use std::ops::{Deref, DerefMut};
 use std::pin::Pin;
 use std::task::{Context, Poll};
-use tokio::io::{AsyncRead, AsyncWrite};
+use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 use tokio::net::{TcpStream, UnixStream};
 use url::Url;
-use std::fmt::Display;
-use std::collections::HashMap;
 
 pub trait Connectable {
     fn get_uri(self) -> Url;
@@ -34,10 +34,7 @@ impl Connection {
     pub async fn connect(uri: &Url) -> Result<Connection, io::Error> {
         let connection = if uri.has_authority() {
             let addr = uri.socket_addrs(|| None)?;
-            let sock = TcpStream::connect(
-                addr.first().unwrap()
-                )
-                .await?;
+            let sock = TcpStream::connect(addr.first().unwrap()).await?;
             Connection::Tcp(ascii::Protocol::new(StreamCompat::new(sock)))
         } else {
             let sock = UnixStream::connect(uri.path()).await?;
@@ -57,9 +54,8 @@ impl Connection {
     /// Returns values for multiple keys in a single call as a HashMap from keys to found values. If a key is not present in memcached it will be absent from returned map.
     pub async fn get_multi<'a, K: AsRef<[u8]>>(
         &'a mut self,
-        keys: &'a Vec<K>
-        ) -> Result<HashMap<String, Vec<u8>>, io::Error>
-    {
+        keys: &'a Vec<K>,
+    ) -> Result<HashMap<String, Vec<u8>>, io::Error> {
         match self {
             Connection::Unix(ref mut c) => c.get_multi(keys).await,
             Connection::Tcp(ref mut c) => c.get_multi(keys).await,
@@ -125,7 +121,15 @@ impl<T: AsyncRead> futures::AsyncRead for StreamCompat<T> {
         cx: &mut Context<'_>,
         buf: &mut [u8],
     ) -> Poll<io::Result<usize>> {
-        AsyncRead::poll_read(unsafe { self.map_unchecked_mut(|s| &mut s.inner) }, cx, buf)
+        let mut b = ReadBuf::new(buf);
+        match AsyncRead::poll_read(
+            unsafe { self.map_unchecked_mut(|s| &mut s.inner) },
+            cx,
+            &mut b,
+        ) {
+            Poll::Ready(_) => Poll::Ready(Ok(b.filled().len())),
+            Poll::Pending => Poll::Pending,
+        }
     }
 }
 
