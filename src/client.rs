@@ -5,7 +5,7 @@ use std::io;
 use std::ops::{Deref, DerefMut};
 use std::pin::Pin;
 use std::task::{Context, Poll};
-use tokio::io::{AsyncRead, AsyncWrite};
+use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 use tokio::net::{TcpStream, UnixStream};
 use url::Url;
 
@@ -142,7 +142,15 @@ impl<T: AsyncRead> futures::AsyncRead for StreamCompat<T> {
         cx: &mut Context<'_>,
         buf: &mut [u8],
     ) -> Poll<io::Result<usize>> {
-        AsyncRead::poll_read(unsafe { self.map_unchecked_mut(|s| &mut s.inner) }, cx, buf)
+        let mut b = ReadBuf::new(buf);
+        match AsyncRead::poll_read(
+            unsafe { self.map_unchecked_mut(|s| &mut s.inner) },
+            cx,
+            &mut b,
+        ) {
+            Poll::Ready(_) => Poll::Ready(Ok(b.filled().len())),
+            Poll::Pending => Poll::Pending,
+        }
     }
 }
 
