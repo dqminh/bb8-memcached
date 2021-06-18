@@ -1,6 +1,6 @@
 [package]
 name = "bb8-memcached"
-version = "0.3.0"
+version = "0.4.0"
 authors = ["Daniel Dao <dqminh89@gmail.com>"]
 edition = "2018"
 readme = "README.md"
@@ -13,7 +13,7 @@ keywords = ["memcache", "memcached", "cache", "database", "async"]
 [dependencies]
 bb8 = "0.7"
 async-trait = "0.1"
-memcache-async = { git = "https://github.com/resosafe/memcache-async" }
+memcache-async = "0.5"
 futures = "0.3"
 url = "2"
 tokio = { version = "1", features = ["rt",  "net", "sync", "time"] }
