@@ -62,6 +62,27 @@ impl Connection {
         }
     }
 
+    /// Delete a key
+    pub async fn delete<'a, K: Display>(&'a mut self, key: &'a K) -> Result<(), io::Error> {
+        match self {
+            Connection::Unix(ref mut c) => c.delete(key).await,
+            Connection::Tcp(ref mut c) => c.delete(key).await,
+        }
+    }
+
+    /// Add key to given value
+    pub async fn add<'a, K: Display>(
+        &'a mut self,
+        key: &'a K,
+        val: &'a [u8],
+        expiration: u32,
+    ) -> Result<(), io::Error> {
+        match self {
+            Connection::Unix(ref mut c) => c.add(key, val, expiration).await,
+            Connection::Tcp(ref mut c) => c.add(key, val, expiration).await,
+        }
+    }
+
     /// Set key to given value and don't wait for response.
     pub async fn set<'a, K: Display>(
         &'a mut self,
