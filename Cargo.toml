@@ -7,6 +7,7 @@ readme = "README.md"
 license = "MIT"
 description = "async connection pool for memcached, based on bb8 and memcache-async"
 keywords = ["memcache", "memcached", "cache", "database", "async"]
+repository = "https://github.com/dqminh/bb8-memcached"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
