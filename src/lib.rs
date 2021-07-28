@@ -79,7 +79,7 @@ mod test {
 
     #[tokio::test]
     async fn test_cache_get() {
-        let manager = MemcacheConnectionManager::new("tcp://localhost:11211").unwrap();
+        let manager = MemcacheConnectionManager::new("tcp://memcached-tcp:11211").unwrap();
         let pool = bb8::Pool::builder().build(manager).await.unwrap();
 
         let pool = pool.clone();
@@ -98,7 +98,7 @@ mod test {
 
     #[tokio::test]
     async fn test_cache_add_delete() {
-        let manager = MemcacheConnectionManager::new("tcp://localhost:11211").unwrap();
+        let manager = MemcacheConnectionManager::new("tcp://memcached-tcp:11211").unwrap();
         let pool = bb8::Pool::builder().build(manager).await.unwrap();
 
         let pool = pool.clone();

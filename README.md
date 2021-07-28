@@ -5,3 +5,7 @@
 ## License
 
 MIT
+
+## Testing
+
+Run `docker compose up --exit-code-from tests --build`
