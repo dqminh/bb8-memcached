@@ -1,0 +1,21 @@
+services:
+    tests:
+        build: .
+        volumes:
+          - unix-sockets:/tmp/:rw
+          - cargo-cache:/usr/local/cargo/registry
+    memcached-unix:
+        image: memcached
+        command: memcached -s /tmp/memcached.sock -a 777
+        volumes:
+            - unix-sockets:/tmp/:rw
+    memcached-tcp:
+        image: memcached
+        command: memcached
+        ports:
+            - "11211:11211"
+        command: memcached
+
+volumes:
+    unix-sockets: {}
+    cargo-cache: {}
