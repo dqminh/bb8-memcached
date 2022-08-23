@@ -44,7 +44,7 @@ impl Connection {
     }
 
     /// Returns the value for given key as bytes. If the value doesn't exist, std::io::ErrorKind::NotFound is returned.
-    pub async fn get<'a, K: Display>(&'a mut self, key: &'a K) -> Result<Vec<u8>, io::Error> {
+    pub async fn get<'a, K: AsRef<[u8]>>(&'a mut self, key: &'a K) -> Result<Vec<u8>, io::Error> {
         match self {
             Connection::Unix(ref mut c) => c.get(key).await,
             Connection::Tcp(ref mut c) => c.get(key).await,
@@ -54,7 +54,7 @@ impl Connection {
     /// Returns values for multiple keys in a single call as a HashMap from keys to found values. If a key is not present in memcached it will be absent from returned map.
     pub async fn get_multi<'a, K: AsRef<[u8]>>(
         &'a mut self,
-        keys: &'a Vec<K>,
+        keys: &'a [K],
     ) -> Result<HashMap<String, Vec<u8>>, io::Error> {
         match self {
             Connection::Unix(ref mut c) => c.get_multi(keys).await,
