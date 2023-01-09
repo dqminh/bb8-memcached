@@ -71,7 +71,6 @@ impl bb8::ManageConnection for MemcacheConnectionManager {
 #[cfg(test)]
 mod test {
     use super::*;
-    use bb8;
     use std::io::ErrorKind;
 
     #[tokio::test]

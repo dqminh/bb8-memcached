@@ -6,7 +6,7 @@ use std::ops::{Deref, DerefMut};
 use std::pin::Pin;
 use std::task::{Context, Poll};
 use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
-use tokio::net::{TcpStream, UnixStream};
+use tokio::net::TcpStream;
 use url::Url;
 
 pub trait Connectable {
@@ -26,7 +26,8 @@ impl Connectable for &str {
 }
 
 pub enum Connection {
-    Unix(ascii::Protocol<StreamCompat<UnixStream>>),
+    #[cfg(unix)]
+    Unix(ascii::Protocol<StreamCompat<tokio::net::UnixStream>>),
     Tcp(ascii::Protocol<StreamCompat<TcpStream>>),
 }
 
@@ -36,9 +37,14 @@ impl Connection {
             let addr = uri.socket_addrs(|| None)?;
             let sock = TcpStream::connect(addr.first().unwrap()).await?;
             Connection::Tcp(ascii::Protocol::new(StreamCompat::new(sock)))
-        } else {
-            let sock = UnixStream::connect(uri.path()).await?;
+        } else if cfg!(unix) {
+            let sock = tokio::net::UnixStream::connect(uri.path()).await?;
             Connection::Unix(ascii::Protocol::new(StreamCompat::new(sock)))
+        } else {
+            return Err(io::Error::new(
+                io::ErrorKind::Other,
+                format!("connect to {uri} is not supported"),
+            ));
         };
         Ok(connection)
     }
@@ -46,6 +52,7 @@ impl Connection {
     /// Returns the value for given key as bytes. If the value doesn't exist, std::io::ErrorKind::NotFound is returned.
     pub async fn get<'a, K: AsRef<[u8]>>(&'a mut self, key: &'a K) -> Result<Vec<u8>, io::Error> {
         match self {
+            #[cfg(unix)]
             Connection::Unix(ref mut c) => c.get(key).await,
             Connection::Tcp(ref mut c) => c.get(key).await,
         }
@@ -57,6 +64,7 @@ impl Connection {
         keys: &'a [K],
     ) -> Result<HashMap<String, Vec<u8>>, io::Error> {
         match self {
+            #[cfg(unix)]
             Connection::Unix(ref mut c) => c.get_multi(keys).await,
             Connection::Tcp(ref mut c) => c.get_multi(keys).await,
         }
@@ -65,6 +73,7 @@ impl Connection {
     /// Delete a key
     pub async fn delete<'a, K: Display>(&'a mut self, key: &'a K) -> Result<(), io::Error> {
         match self {
+            #[cfg(unix)]
             Connection::Unix(ref mut c) => c.delete(key).await,
             Connection::Tcp(ref mut c) => c.delete(key).await,
         }
@@ -78,6 +87,7 @@ impl Connection {
         expiration: u32,
     ) -> Result<(), io::Error> {
         match self {
+            #[cfg(unix)]
             Connection::Unix(ref mut c) => c.add(key, val, expiration).await,
             Connection::Tcp(ref mut c) => c.add(key, val, expiration).await,
         }
@@ -91,6 +101,7 @@ impl Connection {
         expiration: u32,
     ) -> Result<(), io::Error> {
         match self {
+            #[cfg(unix)]
             Connection::Unix(ref mut c) => c.set(key, val, expiration).await,
             Connection::Tcp(ref mut c) => c.set(key, val, expiration).await,
         }
@@ -98,6 +109,7 @@ impl Connection {
 
     pub async fn version(&mut self) -> Result<String, io::Error> {
         match self {
+            #[cfg(unix)]
             Connection::Unix(ref mut c) => c.version().await,
             Connection::Tcp(ref mut c) => c.version().await,
         }
@@ -105,6 +117,7 @@ impl Connection {
 
     pub async fn flush(&mut self) -> Result<(), io::Error> {
         match self {
+            #[cfg(unix)]
             Connection::Unix(ref mut c) => c.flush().await,
             Connection::Tcp(ref mut c) => c.flush().await,
         }
