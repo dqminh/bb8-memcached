@@ -1,6 +1,6 @@
 [package]
 name = "bb8-memcached"
-version = "0.4.0"
+version = "0.5.0"
 authors = ["Daniel Dao <dqminh89@gmail.com>"]
 edition = "2018"
 readme = "README.md"
@@ -12,9 +12,9 @@ repository = "https://github.com/dqminh/bb8-memcached"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-bb8 = "0.7"
+bb8 = "0.8"
 async-trait = "0.1"
-memcache-async = "^0.6"
+memcache-async = "^0.6.4"
 futures = "0.3"
 url = "2"
 tokio = { version = "1", features = ["rt",  "net", "sync", "time"] }
