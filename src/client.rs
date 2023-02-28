@@ -35,6 +35,7 @@ impl Connection {
         let connection = if uri.has_authority() {
             let addr = uri.socket_addrs(|| None)?;
             let sock = TcpStream::connect(addr.first().unwrap()).await?;
+            Self::parse_query_string(uri, &sock);
             Connection::Tcp(ascii::Protocol::new(StreamCompat::new(sock)))
         } else {
             let sock = UnixStream::connect(uri.path()).await?;
@@ -107,6 +108,16 @@ impl Connection {
         match self {
             Connection::Unix(ref mut c) => c.flush().await,
             Connection::Tcp(ref mut c) => c.flush().await,
+        }
+    }
+
+    /// Parse query string for tcp options and set it to TcpStream
+    fn parse_query_string(uri: &Url, sock: &TcpStream) {
+        if let Some(query) = uri.query() {
+            match query {
+                "tcp_nodelay=true" => sock.set_nodelay(true).unwrap_or_default(),
+                _ => (),
+            }
         }
     }
 }
