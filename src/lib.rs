@@ -35,18 +35,35 @@ mod client;
 
 use async_trait::async_trait;
 use client::{Connectable, Connection};
-use std::io;
+use std::{
+    io::{self, ErrorKind},
+    time::Duration,
+};
 use url::Url;
 
 /// A `bb8::ManageConnection` for `memcache_async::ascii::Protocol`.
 #[derive(Clone, Debug)]
 pub struct MemcacheConnectionManager {
     uri: Url,
+    /// A tokio controlled timeout for operations get, get_multi, version.
+    memcache_read_timeout: Option<Duration>,
+    /// A tokio controlled timeout for operations set, add, delete, incr, flush.
+    memcache_write_timeout: Option<Duration>,
 }
 
 impl MemcacheConnectionManager {
     pub fn new<U: Connectable>(u: U) -> Result<MemcacheConnectionManager, io::Error> {
-        Ok(MemcacheConnectionManager { uri: u.get_uri() })
+        Ok(MemcacheConnectionManager {
+            uri: u.get_uri(),
+            memcache_read_timeout: None,
+            memcache_write_timeout: None,
+        })
+    }
+
+    pub fn with_timeouts(mut self, read_timeout: Duration, write_timeout: Duration) -> Self {
+        self.memcache_read_timeout = Some(read_timeout);
+        self.memcache_write_timeout = Some(write_timeout);
+        self
     }
 }
 
@@ -56,23 +73,30 @@ impl bb8::ManageConnection for MemcacheConnectionManager {
     type Error = io::Error;
 
     async fn connect(&self) -> Result<Self::Connection, Self::Error> {
-        Connection::connect(&self.uri).await
+        Connection::connect(
+            &self.uri,
+            self.memcache_read_timeout,
+            self.memcache_write_timeout,
+        )
+        .await
     }
 
     async fn is_valid(&self, conn: &mut Self::Connection) -> Result<(), Self::Error> {
+        if conn.is_tainted() {
+            return Err(ErrorKind::ConnectionAborted.into());
+        }
         conn.version().await.map(|_| ())
     }
 
-    fn has_broken(&self, _: &mut Self::Connection) -> bool {
-        false
+    fn has_broken(&self, conn: &mut Self::Connection) -> bool {
+        conn.is_tainted()
     }
 }
 
 #[cfg(test)]
 mod test {
     use super::*;
-    use bb8;
-    use std::io::ErrorKind;
+    use std::{io::ErrorKind, time::Duration};
 
     #[tokio::test]
     async fn test_cache_get() {
@@ -141,5 +165,49 @@ mod test {
         let mut conn = pool.get().await.unwrap();
 
         assert!(conn.flush().await.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_connection_timeouts() {
+        let manager = MemcacheConnectionManager::new("tcp://localhost:11211")
+            .unwrap()
+            .with_timeouts(Duration::from_millis(2), Duration::from_millis(5));
+        let pool = bb8::Pool::builder().build(manager).await.unwrap();
+
+        {
+            let mut conn = pool.get().await.unwrap();
+
+            assert!(conn.flush().await.is_ok());
+
+            let key = "hello";
+            assert_eq!(
+                conn.get(&key).await.unwrap_err().kind(),
+                ErrorKind::NotFound
+            );
+
+            assert_eq!(pool.state().connections, 1);
+            assert_eq!(pool.state().statistics.connections_closed_broken, 0);
+        }
+
+        {
+            let mut conn = pool.get().await.unwrap();
+
+            assert!(conn.flush().await.is_ok());
+
+            let key = "hello";
+            // test timeout
+            let v = vec![1; 204_800_000];
+
+            assert_eq!(
+                conn.set(&key, &v, 0).await.unwrap_err().kind(),
+                ErrorKind::TimedOut
+            );
+        }
+
+        // connection should be tainted
+        assert_eq!(pool.state().connections, 0);
+        // has_broken happens first because its called when we try to put a connection back into the pool.
+        // is_valid is called when we try to get a connection from the pool.
+        assert_eq!(pool.state().statistics.connections_closed_broken, 1);
     }
 }
