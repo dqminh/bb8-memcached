@@ -118,6 +118,21 @@ mod test {
     }
 
     #[tokio::test]
+    async fn test_increment() {
+        let manager = MemcacheConnectionManager::new("tcp://localhost:11211").unwrap();
+        let pool = bb8::Pool::builder().build(manager).await.unwrap();
+
+        let pool = pool.clone();
+        let mut conn = pool.get().await.unwrap();
+
+        assert!(conn.flush().await.is_ok());
+
+        let (key, val) = ("increment", "0");
+        assert!(conn.set(&key, val.as_bytes(), 0).await.is_ok());
+        assert_eq!(conn.increment(&key, 1).await.unwrap(), 1);
+    }
+
+    #[tokio::test]
     async fn test_cache_unix_socket() {
         let manager = MemcacheConnectionManager::new("unix:/tmp/memcached.sock").unwrap();
         let pool = bb8::Pool::builder().build(manager).await.unwrap();

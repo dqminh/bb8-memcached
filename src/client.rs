@@ -96,6 +96,18 @@ impl Connection {
         }
     }
 
+    /// Increment a value and return the updated value.
+    pub async fn increment<'a, K: AsRef<[u8]>>(
+        &'a mut self,
+        key: &'a K,
+        amount: u64,
+    ) -> Result<u64, io::Error> {
+        match self {
+            Connection::Unix(ref mut c) => c.increment(key, amount).await,
+            Connection::Tcp(ref mut c) => c.increment(key, amount).await,
+        }
+    }
+
     pub async fn version(&mut self) -> Result<String, io::Error> {
         match self {
             Connection::Unix(ref mut c) => c.version().await,

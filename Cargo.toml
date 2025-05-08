@@ -14,7 +14,7 @@ repository = "https://github.com/dqminh/bb8-memcached"
 [dependencies]
 bb8 = "0.8"
 async-trait = "0.1"
-memcache-async = "^0.6.4"
+memcache-async = "^0.8.0"
 futures = "0.3"
 url = "2"
 tokio = { version = "1", features = ["rt",  "net", "sync", "time"] }
