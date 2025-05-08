@@ -1,6 +1,6 @@
 [package]
 name = "bb8-memcached"
-version = "0.5.0"
+version = "0.6.0"
 authors = ["Daniel Dao <dqminh89@gmail.com>"]
 edition = "2018"
 readme = "README.md"
