@@ -5,8 +5,10 @@ use std::io;
 use std::ops::{Deref, DerefMut};
 use std::pin::Pin;
 use std::task::{Context, Poll};
+use std::time::Duration;
 use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 use tokio::net::{TcpStream, UnixStream};
+use tokio::time::timeout;
 use url::Url;
 
 pub trait Connectable {
@@ -25,29 +27,127 @@ impl Connectable for &str {
     }
 }
 
-pub enum Connection {
+pub struct Connection {
+    pub(crate) connection: ConnectionInner,
+    tainted: bool,
+    memcache_read_timeout: Option<Duration>,
+    memcache_write_timeout: Option<Duration>,
+}
+
+pub enum ConnectionInner {
     Unix(ascii::Protocol<StreamCompat<UnixStream>>),
     Tcp(ascii::Protocol<StreamCompat<TcpStream>>),
 }
 
+impl ConnectionInner {
+    /// Returns the value for given key as bytes. If the value doesn't exist, std::io::ErrorKind::NotFound is returned.
+    async fn get<'a, K: AsRef<[u8]>>(&'a mut self, key: &'a K) -> Result<Vec<u8>, io::Error> {
+        match self {
+            ConnectionInner::Unix(ref mut c) => c.get(key).await,
+            ConnectionInner::Tcp(ref mut c) => c.get(key).await,
+        }
+    }
+
+    async fn get_multi<'a, K: AsRef<[u8]>>(
+        &'a mut self,
+        keys: &'a [K],
+    ) -> Result<HashMap<String, Vec<u8>>, io::Error> {
+        match self {
+            ConnectionInner::Unix(ref mut c) => c.get_multi(keys).await,
+            ConnectionInner::Tcp(ref mut c) => c.get_multi(keys).await,
+        }
+    }
+
+    async fn delete<'a, K: Display>(&'a mut self, key: &'a K) -> Result<(), io::Error> {
+        match self {
+            ConnectionInner::Unix(ref mut c) => c.delete(key).await,
+            ConnectionInner::Tcp(ref mut c) => c.delete(key).await,
+        }
+    }
+
+    async fn add<'a, K: Display>(
+        &'a mut self,
+        key: &'a K,
+        val: &'a [u8],
+        expiration: u32,
+    ) -> Result<(), io::Error> {
+        match self {
+            ConnectionInner::Unix(ref mut c) => c.add(key, val, expiration).await,
+            ConnectionInner::Tcp(ref mut c) => c.add(key, val, expiration).await,
+        }
+    }
+
+    async fn set<'a, K: Display>(
+        &'a mut self,
+        key: &'a K,
+        val: &'a [u8],
+        expiration: u32,
+    ) -> Result<(), io::Error> {
+        match self {
+            ConnectionInner::Unix(ref mut c) => c.set(key, val, expiration).await,
+            ConnectionInner::Tcp(ref mut c) => c.set(key, val, expiration).await,
+        }
+    }
+
+    async fn increment<'a, K: AsRef<[u8]>>(
+        &'a mut self,
+        key: &'a K,
+        amount: u64,
+    ) -> Result<u64, io::Error> {
+        match self {
+            ConnectionInner::Unix(ref mut c) => c.increment(key, amount).await,
+            ConnectionInner::Tcp(ref mut c) => c.increment(key, amount).await,
+        }
+    }
+
+    async fn version(&mut self) -> Result<String, io::Error> {
+        match self {
+            ConnectionInner::Unix(ref mut c) => c.version().await,
+            ConnectionInner::Tcp(ref mut c) => c.version().await,
+        }
+    }
+
+    async fn flush(&mut self) -> Result<(), io::Error> {
+        match self {
+            ConnectionInner::Unix(ref mut c) => c.flush().await,
+            ConnectionInner::Tcp(ref mut c) => c.flush().await,
+        }
+    }
+}
+
 impl Connection {
-    pub async fn connect(uri: &Url) -> Result<Connection, io::Error> {
+    pub async fn connect(
+        uri: &Url,
+        memcache_read_timeout: Option<Duration>,
+        memcache_write_timeout: Option<Duration>,
+    ) -> Result<Connection, io::Error> {
         let connection = if uri.has_authority() {
             let addr = uri.socket_addrs(|| None)?;
             let sock = TcpStream::connect(addr.first().unwrap()).await?;
-            Connection::Tcp(ascii::Protocol::new(StreamCompat::new(sock)))
+            ConnectionInner::Tcp(ascii::Protocol::new(StreamCompat::new(sock)))
         } else {
             let sock = UnixStream::connect(uri.path()).await?;
-            Connection::Unix(ascii::Protocol::new(StreamCompat::new(sock)))
+            ConnectionInner::Unix(ascii::Protocol::new(StreamCompat::new(sock)))
         };
-        Ok(connection)
+        Ok(Connection {
+            connection,
+            tainted: false,
+            memcache_read_timeout,
+            memcache_write_timeout,
+        })
     }
 
     /// Returns the value for given key as bytes. If the value doesn't exist, std::io::ErrorKind::NotFound is returned.
     pub async fn get<'a, K: AsRef<[u8]>>(&'a mut self, key: &'a K) -> Result<Vec<u8>, io::Error> {
-        match self {
-            Connection::Unix(ref mut c) => c.get(key).await,
-            Connection::Tcp(ref mut c) => c.get(key).await,
+        match self.memcache_read_timeout {
+            Some(read_timeout) => match timeout(read_timeout, self.connection.get(key)).await {
+                Err(_elapsed_err) => {
+                    self.taint();
+                    Err(io::ErrorKind::TimedOut.into())
+                }
+                Ok(data) => data,
+            },
+            _ => self.connection.get(key).await,
         }
     }
 
@@ -56,17 +156,33 @@ impl Connection {
         &'a mut self,
         keys: &'a [K],
     ) -> Result<HashMap<String, Vec<u8>>, io::Error> {
-        match self {
-            Connection::Unix(ref mut c) => c.get_multi(keys).await,
-            Connection::Tcp(ref mut c) => c.get_multi(keys).await,
+        match self.memcache_read_timeout {
+            Some(read_timeout) => {
+                match timeout(read_timeout, self.connection.get_multi(keys)).await {
+                    Err(_elapsed_err) => {
+                        self.taint();
+                        Err(io::ErrorKind::TimedOut.into())
+                    }
+                    Ok(data) => data,
+                }
+            }
+            _ => self.connection.get_multi(keys).await,
         }
     }
 
     /// Delete a key
     pub async fn delete<'a, K: Display>(&'a mut self, key: &'a K) -> Result<(), io::Error> {
-        match self {
-            Connection::Unix(ref mut c) => c.delete(key).await,
-            Connection::Tcp(ref mut c) => c.delete(key).await,
+        match self.memcache_write_timeout {
+            Some(write_timeout) => {
+                match timeout(write_timeout, self.connection.delete(key)).await {
+                    Err(_elapsed_err) => {
+                        self.taint();
+                        Err(io::ErrorKind::TimedOut.into())
+                    }
+                    Ok(data) => data,
+                }
+            }
+            _ => self.connection.delete(key).await,
         }
     }
 
@@ -77,9 +193,17 @@ impl Connection {
         val: &'a [u8],
         expiration: u32,
     ) -> Result<(), io::Error> {
-        match self {
-            Connection::Unix(ref mut c) => c.add(key, val, expiration).await,
-            Connection::Tcp(ref mut c) => c.add(key, val, expiration).await,
+        match self.memcache_write_timeout {
+            Some(write_timeout) => {
+                match timeout(write_timeout, self.connection.add(key, val, expiration)).await {
+                    Err(_elapsed_err) => {
+                        self.taint();
+                        Err(io::ErrorKind::TimedOut.into())
+                    }
+                    Ok(data) => data,
+                }
+            }
+            _ => self.connection.add(key, val, expiration).await,
         }
     }
 
@@ -90,9 +214,17 @@ impl Connection {
         val: &'a [u8],
         expiration: u32,
     ) -> Result<(), io::Error> {
-        match self {
-            Connection::Unix(ref mut c) => c.set(key, val, expiration).await,
-            Connection::Tcp(ref mut c) => c.set(key, val, expiration).await,
+        match self.memcache_write_timeout {
+            Some(write_timeout) => {
+                match timeout(write_timeout, self.connection.set(key, val, expiration)).await {
+                    Err(_elapsed_err) => {
+                        self.taint();
+                        Err(io::ErrorKind::TimedOut.into())
+                    }
+                    Ok(data) => data,
+                }
+            }
+            _ => self.connection.set(key, val, expiration).await,
         }
     }
 
@@ -102,24 +234,52 @@ impl Connection {
         key: &'a K,
         amount: u64,
     ) -> Result<u64, io::Error> {
-        match self {
-            Connection::Unix(ref mut c) => c.increment(key, amount).await,
-            Connection::Tcp(ref mut c) => c.increment(key, amount).await,
+        match self.memcache_write_timeout {
+            Some(write_timeout) => {
+                match timeout(write_timeout, self.connection.increment(key, amount)).await {
+                    Err(_elapsed_err) => {
+                        self.taint();
+                        Err(io::ErrorKind::TimedOut.into())
+                    }
+                    Ok(data) => data,
+                }
+            }
+            _ => self.connection.increment(key, amount).await,
         }
     }
 
     pub async fn version(&mut self) -> Result<String, io::Error> {
-        match self {
-            Connection::Unix(ref mut c) => c.version().await,
-            Connection::Tcp(ref mut c) => c.version().await,
+        match self.memcache_read_timeout {
+            Some(read_timeout) => match timeout(read_timeout, self.connection.version()).await {
+                Err(_elapsed_err) => {
+                    self.taint();
+                    Err(io::ErrorKind::TimedOut.into())
+                }
+                Ok(data) => data,
+            },
+            _ => self.connection.version().await,
         }
     }
 
     pub async fn flush(&mut self) -> Result<(), io::Error> {
-        match self {
-            Connection::Unix(ref mut c) => c.flush().await,
-            Connection::Tcp(ref mut c) => c.flush().await,
+        match self.memcache_write_timeout {
+            Some(write_timeout) => match timeout(write_timeout, self.connection.flush()).await {
+                Err(_elapsed_err) => {
+                    self.taint();
+                    Err(io::ErrorKind::TimedOut.into())
+                }
+                Ok(data) => data,
+            },
+            _ => self.connection.flush().await,
         }
+    }
+
+    fn taint(&mut self) {
+        self.tainted = true
+    }
+
+    pub(crate) fn is_tainted(&self) -> bool {
+        self.tainted
     }
 }
 
